@@ -1,0 +1,87 @@
+services:
+  traefik:
+    image: traefik:v3.6.6
+    container_name: traefik
+    hostname: traefik
+    restart: unless-stopped
+    networks:
+      - proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    command:
+      - "--api=true"
+      - "--api.dashboard=true"
+      - "--ping=true"
+      - "--providers.docker=true"
+      - "--providers.docker.network=proxy"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.directory=/config"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.web.forwardedHeaders.insecure=false"
+      - "--entrypoints.web.forwardedHeaders.trustedIPs=127.0.0.1/32,172.16.0.0/12"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.websecure.forwardedHeaders.insecure=false"
+      - "--entrypoints.websecure.forwardedHeaders.trustedIPs=127.0.0.1/32,172.16.0.0/12"
+      - "--certificatesresolvers.le.acme.dnschallenge=true"
+      - "--certificatesresolvers.le.acme.dnschallenge.provider=cloudflare"
+      - "--certificatesresolvers.le.acme.dnschallenge.propagation.delaybeforechecks=30s"
+      - "--certificatesresolvers.le.acme.dnschallenge.resolvers=8.8.8.8:53,1.1.1.1:53,8.8.4.4:53,1.0.0.1:53"
+      - "--certificatesresolvers.le.acme.email=${EMAIL}"
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+      - "--accesslog=true"
+      - "--accesslog.addinternals"
+      - "--accesslog.filepath=/var/log/traefik/access.log"
+      - "--accesslog.format=json"
+      - "--accesslog.fields.headers.defaultmode=keep"
+      - "--log.level=INFO"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`${DASHBOARD_TRAEFIK}`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=le"
+      - "traefik.http.routers.traefik.tls.domains[0].main=${DOMAIN}"
+      - "traefik.http.routers.traefik.tls.domains[0].sans=*.${DOMAIN}"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=lb-whitelist"
+      - "traefik.http.middlewares.lb-whitelist.ipallowlist.sourcerange=${WHITELIST}"
+    environment:
+      - DNS_API_TOKEN=${API_KEY}
+      - TZ=Europe/Moscow
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/etc/localtime:/etc/localtime:ro"
+      - "./letsencrypt:/letsencrypt"
+      - "./traefik/config:/config"
+      - "./traefik/logs:/var/log/traefik"
+
+  fallback-endpoint:
+    image: nginx:1.29-alpine
+    container_name: fallback-endpoint
+    restart: unless-stopped
+    networks:
+      - proxy
+    volumes:
+      - "./fallback/nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+
+  3x-ui:
+    image: ghcr.io/mhsanaei/3x-ui:latest
+    container_name: 3x-ui
+    restart: unless-stopped
+    ports:
+      - 1443:1443
+    networks:
+      - proxy
+    volumes:
+      - ./db_3x-ui:/etc/x-ui
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - TZ=Europe/Moscow
+
+networks:
+  proxy:
+    external: true

@@ -1,0 +1,68 @@
+http:
+  routers:
+    3x-ui-web:
+      entryPoints: [websecure]
+      rule: "Host(`vpn.example.com`)"
+      service: 3x-ui-web
+      tls:
+        certResolver: le
+
+    catchall-websecure-tls:
+      entryPoints: [websecure]
+      rule: "HostRegexp(`{host:.+}`) || PathPrefix(`/`)"
+      priority: 1
+      service: fallback-service
+      middlewares: [rate-limit]
+      tls: {}
+
+    catchall-websecure-plain:
+      entryPoints: [websecure]
+      rule: "HostRegexp(`{host:.+}`) || PathPrefix(`/`)"
+      priority: -1
+      service: fallback-service
+      middlewares: [rate-limit]
+
+    catchall-web:
+      entryPoints: [web]
+      rule: "HostRegexp(`{host:.+}`) || PathPrefix(`/`)"
+      priority: 1
+      service: fallback-service
+      middlewares: [rate-limit]
+
+    catchall-web-https80:
+      entryPoints: [web]
+      rule: "HostRegexp(`{host:.+}`) || PathPrefix(`/`)"
+      service: fallback-service
+      middlewares: [rate-limit, drop-https-port80]
+      tls: {}
+
+  services:
+    fallback-service:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://fallback-endpoint:80"
+
+    3x-ui-web:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://3x-ui:8841"
+
+  middlewares:
+
+    rate-limit:
+      rateLimit:
+        average: 5
+        burst: 20
+
+    whitelist:
+      ipAllowList:
+        sourceRange:
+          - "172.16.0.0/12"
+
+    drop-https-port80:
+      redirectRegex:
+        regex:  "^https://([^/]+):80(.*)$"
+        replacement: "https://$1$2"
+        permanent: true
